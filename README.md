@@ -2,9 +2,9 @@
 </p>
 <br />
 
-# Scavanger Of The Year Backend '24
+# Scavanger Of The Year Backend '26
 
-The official Backend API for Scavanger Of The Year'24 Event Portal
+The official Backend API for Scavanger Of The Year'26 Event Portal
 
 ## Event Details
 
