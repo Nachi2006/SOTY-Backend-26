@@ -3,24 +3,61 @@ const bcrypt = require("bcrypt");
 
 const getAllUsers = async (req, res) => {
   try {
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders(); 
+
     const page = Math.max(parseInt(req.query.page) - 1, 0) || 0;
-    const limit = parseInt(req.query.limit) || 10000000;
+    const limit = parseInt(req.query.limit) || 100; 
     const skip = page * limit;
 
-    const sortParam = req.query.sort ? req.query.sort.split(",") : ["score"];
+    const sortParam = req.query.sort
+      ? req.query.sort.split(",")
+      : ["score", "desc"];
+
     const sortBy = { [sortParam[0]]: sortParam[1] || "desc" };
 
-    const users = await UserModel.find({ isAdmin: false })
-      .select("username score updatedAnswerAt isBan")
-      .sort(sortBy)
-      .skip(skip)
-      .limit(limit)
-      .exec();
+    let isClientConnected = true;
 
-    res.status(200).json(users);
+    req.on("close", () => {
+      isClientConnected = false;
+      console.log("SSE client disconnected");
+    });
+
+    const sendLeaderboard = async () => {
+      if (!isClientConnected) return;
+
+      const users = await UserModel.find({ isAdmin: false })
+        .select("username score updatedAnswerAt isBan")
+        .sort(sortBy)
+        .skip(skip)
+        .limit(limit)
+        .lean();
+
+      res.write(`event: leaderboard\n`);
+      res.write(`data: ${JSON.stringify(users)}\n\n`);
+    };
+
+    await sendLeaderboard();
+
+    const interval = setInterval(sendLeaderboard, 5000*12); 
+
+    const heartbeat = setInterval(() => {
+      if (isClientConnected) {
+        res.write(`: heartbeat\n\n`);
+      }
+    }, 15000);
+
+    req.on("close", () => {
+      clearInterval(interval);
+      clearInterval(heartbeat);
+      res.end();
+    });
+
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: "Internal Server Error" });
+    res.end();
   }
 };
 
