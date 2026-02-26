@@ -122,94 +122,74 @@ const postAnswerQuestion = async (req, res) => {
     const { id } = req.params;
     const { question, answer, points, difficultyLevel } = req.body;
 
-    const user = await userModel.findById(id);
-
-    if (!user) {
-      return res.status(404).json(
-        { 
-          message: "User not found." 
-        }
-      );
+    if (typeof points !== "number") {
+      return res.status(400).json({
+        message: "Invalid score. Score must be a number",
+      });
     }
-    console.log("user", user);
-    const postAnswers = await questionModel.findOne({
+
+    const user = await userModel.findById(id);
+    if (!user) {
+      return res.status(404).json({
+        message: "User not found.",
+      });
+    }
+
+    const questionDoc = await questionModel.findOne({
       user_id: id,
       question: question,
-      points: points,
-      answered: "pending",
       difficultyLevel: difficultyLevel,
     });
-    if (typeof points !== "number") {
-      return res
-        .status(400)
-        .json(
-          {
-             message: "Invalid score. Score must be a number" 
-          }
-        );
+
+    if (!questionDoc) {
+      return res.status(404).json({
+        message: "Question not found for this user",
+      });
     }
-    if (postAnswers) {
-      const questions = JSON.parse(fs.readFileSync(questionFilePath, "utf8"));
-      const matchingQuestion = questions.filter(
-        (userquestion) => userquestion.question === question
-      );
-      console.log("matchingQuestion", matchingQuestion);
-      if (matchingQuestion && matchingQuestion[0].answer === answer) {
-        console.log("matchingQuestion.answer", matchingQuestion.answer);
-        const user = await userModel.findById(id);
-        if (user) {
-          const updatedScore = user.score + points;
-          await userModel.findByIdAndUpdate(id, {
-            updatedAnswerAt: Date.now(),
-          });
-          await userModel.findByIdAndUpdate(id, { score: updatedScore });
-          await userModel.findByIdAndUpdate(id, { canAnswer: true });
-          await userModel.findByIdAndUpdate(id, {
-            inCorrectStreaks: 0,
-          });
 
-          await questionModel.findOneAndUpdate(
-            { user_id: id, question: question },
-            { answered: "true" }
-          );
-          return res.status(200).json({
-            message: "Correct answer!",
-            updatedScore: updatedScore,
-          });
-        } else {
-          return res.status(404).json(
-            { 
-              message: "User not found." 
-            }
-          );
-        }
-      } else {
-        await userModel.findByIdAndUpdate(id, {
-          lastIncorrectAttemptTime: Date.now(),
-        });
-        const updatedStreaks = user.inCorrectStreaks + 1;
-        await userModel.findByIdAndUpdate(id, {
-          inCorrectStreaks: updatedStreaks,
-        });
-        await user.save();
-
-        console.log(user.inCorrectStreaks);
-        console.log(user.lastIncorrectAttemptTime);
-
-        return res.status(200).json({
-          message: "Incorrect answer. Try again.",
-          wrongAttempts: `${updatedStreaks}`,
-        });
-      }
+    if (questionDoc.answered === "true") {
+      return res.status(400).json({
+        message: "Question already answered",
+      });
     }
-    console.log("postAnswers", postAnswers);
-    return res.status(404).json(
-      {
-      message: "Already answered the question",
-      }
-    );
+
+    if (questionDoc.answer === answer) {
+      const updatedScore = user.score + questionDoc.points;
+
+      await userModel.findByIdAndUpdate(id, {
+        score: updatedScore,
+        updatedAnswerAt: Date.now(),
+        canAnswer: true,
+        inCorrectStreaks: 0,
+      });
+
+      await questionModel.findByIdAndUpdate(questionDoc._id, {
+        answered: "true",
+      });
+
+      return res.status(200).json({
+        message: "Correct answer!",
+        updatedScore: updatedScore,
+      });
+    } else {
+      const updatedStreaks = (user.inCorrectStreaks || 0) + 1;
+
+      await userModel.findByIdAndUpdate(id, {
+        lastIncorrectAttemptTime: Date.now(),
+        inCorrectStreaks: updatedStreaks,
+      });
+
+      await questionModel.findByIdAndUpdate(questionDoc._id, {
+        answered: "true",
+      });
+
+      return res.status(200).json({
+        message: "Incorrect answer. Try again.",
+        wrongAttempts: `${updatedStreaks}`,
+      });
+    }
   } catch (error) {
-    console.error(error);
+    console.error("postAnswerQuestion error:", error);
     res.status(500).json({ error: "Internal Server Error" });
   }
 };
